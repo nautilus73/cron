@@ -9,11 +9,11 @@ type RepeatCountTimesSchedule struct {
 	valid bool
 }
 
-func RepeatCountTimes(delay time.Duration, count int) RepeatCountTimesSchedule {
+func RepeatCountTimes(delay time.Duration, count int) *RepeatCountTimesSchedule {
 	return RepeatCountTimesFrom(time.Now(), delay, count)
 }
 
-func RepeatCountTimesFrom(start time.Time, delay time.Duration, count int) RepeatCountTimesSchedule {
+func RepeatCountTimesFrom(start time.Time, delay time.Duration, count int) *RepeatCountTimesSchedule {
 	if start.IsZero() {
 		start = time.Now()
 	}
@@ -23,7 +23,7 @@ func RepeatCountTimesFrom(start time.Time, delay time.Duration, count int) Repea
 	if count < 1 {
 		count = 1
 	}
-	return RepeatCountTimesSchedule{
+	return &RepeatCountTimesSchedule{
 		Start: start.Truncate(time.Second),
 		Delay: delay - time.Duration(delay.Nanoseconds())%time.Second,
 		Count: count,
@@ -31,22 +31,22 @@ func RepeatCountTimesFrom(start time.Time, delay time.Duration, count int) Repea
 	}
 }
 
-func (schedule RepeatCountTimesSchedule) Next(t time.Time) time.Time {
-	start := schedule.Start.In(t.Location())
+func (s *RepeatCountTimesSchedule) Next(t time.Time) time.Time {
+	start := s.Start.In(t.Location())
 	passedPeriods := t.Sub(start)
-	if passedPeriods < schedule.Delay {
+	if passedPeriods < s.Delay {
 		passedPeriods = 0
 	} else {
-		passedPeriods = passedPeriods.Truncate(schedule.Delay)
+		passedPeriods = passedPeriods.Truncate(s.Delay)
 	}
-	lastPeriod := schedule.Delay * time.Duration(schedule.Count)
-	schedule.valid = passedPeriods < lastPeriod
-	if !schedule.valid {
+	lastPeriod := s.Delay * time.Duration(s.Count)
+	if passedPeriods >= lastPeriod {
+		s.valid = false
 		return time.Time{}
 	}
-	return start.Add(passedPeriods + schedule.Delay)
+	return start.Add(passedPeriods + s.Delay)
 }
 
-func (schedule RepeatCountTimesSchedule) Valid() bool {
-	return schedule.valid
+func (s *RepeatCountTimesSchedule) Valid() bool {
+	return s.valid
 }
