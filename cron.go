@@ -262,7 +262,9 @@ func (c *Cron) run() {
 		// Determine the next entry to run.
 		sort.Sort(byTime(c.entries))
 
-		c.cleanUp()
+		if c.needCleanUp {
+			c.cleanUp()
+		}
 
 		var timer *time.Timer
 		if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
@@ -373,7 +375,9 @@ func (c *Cron) removeEntry(id EntryID) {
 
 // Removing invalid entries
 func (c *Cron) cleanUp() {
-	if c.needCleanUp && (len(c.entries) > 0) {
+	c.logger.Info("cleanUp start", "size", len(c.entries))
+
+	if len(c.entries) > 0 {
 		c.needCleanUp = false
 
 		var entries []*Entry
@@ -383,5 +387,7 @@ func (c *Cron) cleanUp() {
 			}
 		}
 		c.entries = entries
+
+		c.logger.Info("cleanUp end", "size", len(c.entries))
 	}
 }
