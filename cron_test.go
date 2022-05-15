@@ -682,29 +682,27 @@ func TestMultiThreadedStartAndStop(t *testing.T) {
 	cron.Stop()
 }
 
-// func TestRunningRepeatCountTimesSchedules(t *testing.T) {
-// 	wg := &sync.WaitGroup{}
-// 	wg.Add(3)
+func TestRunningRepeatCountTimesSchedules(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	wg.Add(4)
 
-// 	cron := newWithSeconds()
-// 	cron.AddFunc("0 0 0 1 1 ?", func() {})
-// 	cron.AddFunc("0 0 0 31 12 ?", func() {})
-// 	cron.AddFunc("* * * * * ?", func() {
-// 		t.Errorf("-1- %v - %v - %v", len(cron.entries), cron.Entry("test1").Next, cron.Entry("test1").Valid())
-// 	})
-// 	cron.Schedule(Every(time.Second*4), FuncJob(func() { wg.Done() }))
-// 	cron.ScheduleWithID("test1", RepeatCountTimes(time.Second, 2), FuncJob(func() { wg.Done() }))
-// 	cron.Schedule(Every(time.Hour), FuncJob(func() {}))
+	cron := newWithSeconds()
+	cron.AddFunc("0 0 0 1 1 ?", func() {})
+	cron.AddFunc("0 0 0 31 12 ?", func() {})
+	cron.AddFunc("* * * * * ?", func() {})
+	cron.Schedule(Every(time.Second*4), FuncJob(func() { wg.Done() }))
+	cron.Schedule(RepeatCountTimes(time.Second, 3), FuncJob(func() { wg.Done() }))
+	cron.Schedule(Every(time.Hour), FuncJob(func() {}))
 
-// 	cron.Start()
-// 	defer cron.Stop()
+	cron.Start()
+	defer cron.Stop()
 
-// 	select {
-// 	case <-time.After(4 * OneSecond):
-// 		t.Error("expected job fires 3 times")
-// 	case <-wait(wg):
-// 	}
-// }
+	select {
+	case <-time.After(4 * OneSecond):
+		t.Error("expected job fires 4 times")
+	case <-wait(wg):
+	}
+}
 
 func wait(wg *sync.WaitGroup) chan bool {
 	ch := make(chan bool)

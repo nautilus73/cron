@@ -12,20 +12,20 @@ import (
 // specified by the schedule. It may be started, stopped, and the entries may
 // be inspected while running.
 type Cron struct {
-	entries     []*Entry
-	chain       Chain
-	stop        chan struct{}
-	add         chan *Entry
-	remove      chan EntryID
-	snapshot    chan chan []Entry
-	running     bool
-	logger      Logger
-	runningMu   sync.Mutex
-	location    *time.Location
-	parser      ScheduleParser
-	nextID      int
-	jobWaiter   sync.WaitGroup
-	needCleanUp bool
+	entries   []*Entry
+	chain     Chain
+	stop      chan struct{}
+	add       chan *Entry
+	remove    chan EntryID
+	snapshot  chan chan []Entry
+	cleanup   chan struct{}
+	running   bool
+	logger    Logger
+	runningMu sync.Mutex
+	location  *time.Location
+	parser    ScheduleParser
+	nextID    int
+	jobWaiter sync.WaitGroup
 }
 
 // ScheduleParser is an interface for schedule spec parsers that return a Schedule
@@ -116,18 +116,18 @@ func (s byTime) Less(i, j int) bool {
 // See "cron.With*" to modify the default behavior.
 func New(opts ...Option) *Cron {
 	c := &Cron{
-		entries:     nil,
-		chain:       NewChain(),
-		add:         make(chan *Entry),
-		stop:        make(chan struct{}),
-		snapshot:    make(chan chan []Entry),
-		remove:      make(chan EntryID),
-		running:     false,
-		runningMu:   sync.Mutex{},
-		logger:      DefaultLogger,
-		location:    time.Local,
-		parser:      standardParser,
-		needCleanUp: false,
+		entries:   nil,
+		chain:     NewChain(),
+		add:       make(chan *Entry),
+		stop:      make(chan struct{}),
+		snapshot:  make(chan chan []Entry),
+		remove:    make(chan EntryID),
+		cleanup:   make(chan struct{}),
+		running:   false,
+		runningMu: sync.Mutex{},
+		logger:    DefaultLogger,
+		location:  time.Local,
+		parser:    standardParser,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -223,6 +223,17 @@ func (c *Cron) Remove(id EntryID) {
 	}
 }
 
+// Removing invalid entries.
+func (c *Cron) CleanUp() {
+	c.runningMu.Lock()
+	defer c.runningMu.Unlock()
+	if c.running {
+		c.cleanup <- struct{}{}
+	} else {
+		c.entryCleanUp()
+	}
+}
+
 // Start the cron scheduler in its own goroutine, or no-op if already started.
 func (c *Cron) Start() {
 	c.runningMu.Lock()
@@ -262,10 +273,6 @@ func (c *Cron) run() {
 		// Determine the next entry to run.
 		sort.Sort(byTime(c.entries))
 
-		if c.needCleanUp {
-			c.cleanUp()
-		}
-
 		var timer *time.Timer
 		if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
 			// If there are no entries yet, just sleep - it still handles new entries
@@ -283,9 +290,6 @@ func (c *Cron) run() {
 
 				// Run every entry whose next time was less than now
 				for _, e := range c.entries {
-					if !e.Valid() {
-						c.needCleanUp = true
-					}
 					if e.Next.After(now) || e.Next.IsZero() {
 						break
 					}
@@ -316,6 +320,11 @@ func (c *Cron) run() {
 				now = c.now()
 				c.removeEntry(id)
 				c.logger.Info("removed", "entry", id)
+
+			case <-c.cleanup:
+				timer.Stop()
+				c.entryCleanUp()
+				c.logger.Info("cleanUp")
 			}
 
 			break
@@ -373,13 +382,8 @@ func (c *Cron) removeEntry(id EntryID) {
 	c.entries = entries
 }
 
-// Removing invalid entries
-func (c *Cron) cleanUp() {
-	c.logger.Info("cleanUp start", "size", len(c.entries))
-
+func (c *Cron) entryCleanUp() {
 	if len(c.entries) > 0 {
-		c.needCleanUp = false
-
 		var entries []*Entry
 		for _, e := range c.entries {
 			if e.Valid() {
@@ -387,7 +391,5 @@ func (c *Cron) cleanUp() {
 			}
 		}
 		c.entries = entries
-
-		c.logger.Info("cleanUp end", "size", len(c.entries))
 	}
 }
