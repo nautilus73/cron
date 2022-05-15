@@ -1,3 +1,3 @@
-module github.com/nautilus73/cron/v3
+module github.com/nautilus73/cron/v4
 
-go 1.13
+go 1.18

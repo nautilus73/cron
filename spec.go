@@ -186,3 +186,7 @@ func dayMatches(s *SpecSchedule, t time.Time) bool {
 	}
 	return domMatch || dowMatch
 }
+
+func (s *SpecSchedule) Valid() bool {
+	return true
+}

@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -22,7 +23,7 @@ type Cron struct {
 	runningMu sync.Mutex
 	location  *time.Location
 	parser    ScheduleParser
-	nextID    EntryID
+	nextID    int
 	jobWaiter sync.WaitGroup
 }
 
@@ -41,10 +42,12 @@ type Schedule interface {
 	// Next returns the next activation time, later than the given time.
 	// Next is invoked initially, and then each time the job is run.
 	Next(time.Time) time.Time
+	// Valid returns true if this is satisfiable.
+	Valid() bool
 }
 
 // EntryID identifies an entry within a Cron instance
-type EntryID int
+type EntryID string
 
 // Entry consists of a schedule and the func to execute on that schedule.
 type Entry struct {
@@ -72,7 +75,7 @@ type Entry struct {
 }
 
 // Valid returns true if this is not the zero entry.
-func (e Entry) Valid() bool { return e.ID != 0 }
+func (e Entry) Valid() bool { return (e.ID != "") && e.Schedule.Valid() }
 
 // byTime is a wrapper for sorting the entry array by time
 // (with zero time at the end).
@@ -148,7 +151,7 @@ func (c *Cron) AddFunc(spec string, cmd func()) (EntryID, error) {
 func (c *Cron) AddJob(spec string, cmd Job) (EntryID, error) {
 	schedule, err := c.parser.Parse(spec)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	return c.Schedule(schedule, cmd), nil
 }
@@ -156,11 +159,18 @@ func (c *Cron) AddJob(spec string, cmd Job) (EntryID, error) {
 // Schedule adds a Job to the Cron to be run on the given schedule.
 // The job is wrapped with the configured Chain.
 func (c *Cron) Schedule(schedule Schedule, cmd Job) EntryID {
+	return c.ScheduleWithID("", schedule, cmd)
+}
+
+func (c *Cron) ScheduleWithID(id EntryID, schedule Schedule, cmd Job) EntryID {
 	c.runningMu.Lock()
 	defer c.runningMu.Unlock()
-	c.nextID++
+	if id == "" {
+		c.nextID++
+		id = EntryID(strconv.Itoa(c.nextID))
+	}
 	entry := &Entry{
-		ID:         c.nextID,
+		ID:         id,
 		Schedule:   schedule,
 		WrappedJob: c.chain.Then(cmd),
 		Job:        cmd,
@@ -249,6 +259,8 @@ func (c *Cron) run() {
 	for {
 		// Determine the next entry to run.
 		sort.Sort(byTime(c.entries))
+
+		c.cleanUp()
 
 		var timer *time.Timer
 		if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
@@ -352,4 +364,17 @@ func (c *Cron) removeEntry(id EntryID) {
 		}
 	}
 	c.entries = entries
+}
+
+// Removing invalid entries
+func (c *Cron) cleanUp() {
+	if (len(c.entries) > 0) && (!c.entries[len(c.entries)-1].Valid()) {
+		var entries []*Entry
+		for _, e := range c.entries {
+			if e.Valid() {
+				entries = append(entries, e)
+			}
+		}
+		c.entries = entries
+	}
 }
