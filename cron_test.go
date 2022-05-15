@@ -690,7 +690,7 @@ func TestRunningRepeatCountTimesSchedules(t *testing.T) {
 	cron.AddFunc("0 0 0 1 1 ?", func() {})
 	cron.AddFunc("0 0 0 31 12 ?", func() {})
 	cron.AddFunc("* * * * * ?", func() {})
-	cron.Schedule(Every(time.Second*4), FuncJob(func() { wg.Done() }))
+	cron.ScheduleWithID("test4", Every(time.Second*4), FuncJob(func() { wg.Done() }))
 	cron.Schedule(RepeatCountTimes(time.Second, 3), FuncJob(func() { wg.Done() }))
 	cron.Schedule(Every(time.Hour), FuncJob(func() {}))
 
@@ -701,6 +701,26 @@ func TestRunningRepeatCountTimesSchedules(t *testing.T) {
 	case <-time.After(4 * OneSecond):
 		t.Error("expected job fires 4 times")
 	case <-wait(wg):
+	}
+
+	expectedSize := len(cron.Entries())
+	wantSize := 6
+	if expectedSize != wantSize {
+		t.Errorf("diff entries count before clean up (want:%d; expected: %d)", wantSize, expectedSize)
+	}
+
+	cron.CleanUp()
+	expectedSize = len(cron.Entries())
+	wantSize = 5
+	if expectedSize != wantSize {
+		t.Errorf("diff entries count after clean up (want:%d; expected: %d)", wantSize, expectedSize)
+	}
+
+	cron.Remove("test4")
+	expectedSize = len(cron.Entries())
+	wantSize = 4
+	if expectedSize != wantSize {
+		t.Errorf("diff entries count after remove 'test4' job (want:%d; expected: %d)", wantSize, expectedSize)
 	}
 }
 
