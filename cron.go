@@ -12,19 +12,20 @@ import (
 // specified by the schedule. It may be started, stopped, and the entries may
 // be inspected while running.
 type Cron struct {
-	entries   []*Entry
-	chain     Chain
-	stop      chan struct{}
-	add       chan *Entry
-	remove    chan EntryID
-	snapshot  chan chan []Entry
-	running   bool
-	logger    Logger
-	runningMu sync.Mutex
-	location  *time.Location
-	parser    ScheduleParser
-	nextID    int
-	jobWaiter sync.WaitGroup
+	entries     []*Entry
+	chain       Chain
+	stop        chan struct{}
+	add         chan *Entry
+	remove      chan EntryID
+	snapshot    chan chan []Entry
+	running     bool
+	logger      Logger
+	runningMu   sync.Mutex
+	location    *time.Location
+	parser      ScheduleParser
+	nextID      int
+	jobWaiter   sync.WaitGroup
+	needCleanUp bool
 }
 
 // ScheduleParser is an interface for schedule spec parsers that return a Schedule
@@ -115,17 +116,18 @@ func (s byTime) Less(i, j int) bool {
 // See "cron.With*" to modify the default behavior.
 func New(opts ...Option) *Cron {
 	c := &Cron{
-		entries:   nil,
-		chain:     NewChain(),
-		add:       make(chan *Entry),
-		stop:      make(chan struct{}),
-		snapshot:  make(chan chan []Entry),
-		remove:    make(chan EntryID),
-		running:   false,
-		runningMu: sync.Mutex{},
-		logger:    DefaultLogger,
-		location:  time.Local,
-		parser:    standardParser,
+		entries:     nil,
+		chain:       NewChain(),
+		add:         make(chan *Entry),
+		stop:        make(chan struct{}),
+		snapshot:    make(chan chan []Entry),
+		remove:      make(chan EntryID),
+		running:     false,
+		runningMu:   sync.Mutex{},
+		logger:      DefaultLogger,
+		location:    time.Local,
+		parser:      standardParser,
+		needCleanUp: false,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -279,6 +281,9 @@ func (c *Cron) run() {
 
 				// Run every entry whose next time was less than now
 				for _, e := range c.entries {
+					if !e.Valid() {
+						c.needCleanUp = true
+					}
 					if e.Next.After(now) || e.Next.IsZero() {
 						break
 					}
@@ -368,7 +373,9 @@ func (c *Cron) removeEntry(id EntryID) {
 
 // Removing invalid entries
 func (c *Cron) cleanUp() {
-	if (len(c.entries) > 0) && (!c.entries[len(c.entries)-1].Valid()) {
+	if c.needCleanUp && (len(c.entries) > 0) {
+		c.needCleanUp = false
+
 		var entries []*Entry
 		for _, e := range c.entries {
 			if e.Valid() {
